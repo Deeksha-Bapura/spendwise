@@ -1,4 +1,5 @@
 import { hashPassword } from "better-auth/crypto";
+import { encryptSecret } from "../src/lib/crypto";
 import type { PrismaClient, Role } from "../src/generated/prisma/client";
 
 export const DEMO_PASSWORD = "demo1234";
@@ -117,5 +118,111 @@ export async function seed(prisma: PrismaClient) {
     });
   }
 
-  return { orgId: org.id, teamIds, userIds };
+  const demoBanking = await seedDemoBanking(prisma, org.id, userIds);
+
+  return { orgId: org.id, teamIds, userIds, ...demoBanking };
+}
+
+/* ───────────── Demo bank data ─────────────
+ * Seeded "Demo Bank" connections with realistic transactions, so the app has
+ * data without Plaid keys (CI, and recruiters trying the live demo). Demo
+ * items are marked by the "demo_" prefix and are never synced with Plaid.
+ */
+
+/** Users who get a demo bank: chosen to exercise every visibility rule. */
+const DEMO_BANK_USERS = [
+  DEMO_ACCOUNTS.employee, // Engineering
+  "eli@acme.test", // Engineering teammate → visible to the Engineering manager
+  DEMO_ACCOUNTS.manager, // Engineering manager
+  "sam@acme.test", // Sales → NOT visible to the Engineering manager
+];
+export const DEMO_TRANSACTIONS_PER_USER = 30;
+
+// [merchant, Plaid primary category, min $, max $]
+const MERCHANTS: [string, string, number, number][] = [
+  ["Uber", "TRANSPORTATION", 12, 64],
+  ["Lyft", "TRANSPORTATION", 9, 48],
+  ["Delta Air Lines", "TRAVEL", 180, 640],
+  ["Hilton Hotels", "TRAVEL", 140, 420],
+  ["Starbucks", "FOOD_AND_DRINK", 4, 18],
+  ["Sweetgreen", "FOOD_AND_DRINK", 12, 28],
+  ["The Capital Grille", "FOOD_AND_DRINK", 60, 240],
+  ["Amazon Web Services", "GENERAL_SERVICES", 40, 900],
+  ["Figma", "GENERAL_SERVICES", 15, 75],
+  ["Staples", "GENERAL_MERCHANDISE", 8, 120],
+  ["WeWork", "RENT_AND_UTILITIES", 300, 650],
+];
+
+/** Small deterministic PRNG (mulberry32), so every seed run makes the same data. */
+function rng(seed: number) {
+  return () => {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+async function seedDemoBanking(prisma: PrismaClient, orgId: string, userIds: Record<string, string>) {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  let transactions = 0;
+
+  for (const [u, email] of DEMO_BANK_USERS.entries()) {
+    const userId = userIds[email]!;
+    const local = email.split("@")[0]!.replace(/[^a-z]/g, "");
+    const plaidItemId = `demo_item_${local}`;
+
+    const item = await prisma.plaidItem.upsert({
+      where: { plaidItemId },
+      update: {},
+      create: {
+        orgId,
+        userId,
+        plaidItemId,
+        accessTokenEncrypted: encryptSecret("demo-not-a-real-token", plaidItemId),
+        institutionName: "Demo Bank",
+        syncCursor: "demo",
+        lastSyncedAt: today,
+      },
+    });
+    const account = await prisma.bankAccount.upsert({
+      where: { plaidAccountId: `demo_acct_${local}` },
+      update: {},
+      create: {
+        orgId,
+        plaidItemId: item.id,
+        plaidAccountId: `demo_acct_${local}`,
+        name: "Corporate Card",
+        mask: String(4100 + u * 7).slice(-4),
+        type: "credit/credit card",
+      },
+    });
+
+    const rand = rng(1000 + u);
+    for (let i = 0; i < DEMO_TRANSACTIONS_PER_USER; i++) {
+      const [merchant, category, min, max] = MERCHANTS[Math.floor(rand() * MERCHANTS.length)]!;
+      const cents = BigInt(Math.round((min + rand() * (max - min)) * 100));
+      const postedAt = new Date(today.getTime() - Math.floor(i * 2 + rand() * 2) * 86_400_000);
+      await prisma.transaction.upsert({
+        where: { plaidTransactionId: `demo_txn_${local}_${i}` },
+        update: {},
+        create: {
+          orgId,
+          accountId: account.id,
+          plaidTransactionId: `demo_txn_${local}_${i}`,
+          amountCents: cents,
+          currency: "USD",
+          merchantName: merchant,
+          rawDescription: merchant.toUpperCase(),
+          postedAt,
+          pending: i < 2,
+          plaidCategory: category,
+        },
+      });
+      transactions++;
+    }
+  }
+  return { demoBankUsers: DEMO_BANK_USERS.length, demoTransactions: transactions };
 }

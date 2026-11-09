@@ -4,9 +4,11 @@ import { NavLinks } from "@/components/NavLinks";
 import { RoleBadge } from "@/components/RoleBadge";
 
 describe("<NavLinks />", () => {
-  it("employee sees Dashboard only", () => {
+  it("employee sees Dashboard, Transactions and Bank accounts, but not Admin", () => {
     render(<NavLinks role="EMPLOYEE" />);
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
+    expect(screen.getByRole("link", { name: "Transactions" })).toHaveAttribute("href", "/transactions");
+    expect(screen.getByRole("link", { name: "Bank accounts" })).toHaveAttribute("href", "/accounts");
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
   });
 

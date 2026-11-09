@@ -23,6 +23,8 @@ export type Resource = {
 
 export const ACTIONS = [
   "transaction:read",
+  "bank:connect",
+  "bank:sync",
   "expense:read",
   "expense:create",
   "expense:approve",
@@ -50,6 +52,8 @@ const notSelf: Rule = (a, r) => !!r && r.ownerId !== a.id;
 const PERMISSIONS: Record<Role, Record<Action, Rule>> = {
   EMPLOYEE: {
     "transaction:read": own,
+    "bank:connect": always,
+    "bank:sync": own,
     "expense:read": own,
     "expense:create": always,
     "expense:approve": never,
@@ -61,6 +65,8 @@ const PERMISSIONS: Record<Role, Record<Action, Rule>> = {
   },
   MANAGER: {
     "transaction:read": ownOrTeam,
+    "bank:connect": always,
+    "bank:sync": own,
     "expense:read": ownOrTeam,
     "expense:create": always,
     "expense:approve": teamNotSelf,
@@ -72,6 +78,8 @@ const PERMISSIONS: Record<Role, Record<Action, Rule>> = {
   },
   FINANCE_ADMIN: {
     "transaction:read": always,
+    "bank:connect": always,
+    "bank:sync": own, // connections are personal: even admins can't sync someone else's bank
     "expense:read": always,
     "expense:create": always,
     "expense:approve": notSelf,
@@ -98,7 +106,11 @@ export type NavLink = { href: string; label: string };
 /** Navigation for each role. UI only; the server still checks `can()`. */
 export function navLinksFor(role: Role): NavLink[] {
   // Step 3 adds "Approvals" for MANAGER and FINANCE_ADMIN.
-  const links: NavLink[] = [{ href: "/dashboard", label: "Dashboard" }];
+  const links: NavLink[] = [
+    { href: "/dashboard", label: "Dashboard" },
+    { href: "/transactions", label: "Transactions" },
+    { href: "/accounts", label: "Bank accounts" },
+  ];
   if (role === "FINANCE_ADMIN") {
     links.push({ href: "/admin", label: "Admin" });
   }

@@ -24,6 +24,8 @@ describe("can(): role-level permissions without a resource", () => {
   // Expected matrix: [action, employee, manager, finance admin]
   const matrix: [Action, boolean, boolean, boolean][] = [
     ["transaction:read", true, true, true],
+    ["bank:connect", true, true, true],
+    ["bank:sync", true, true, true], // no resource = "a bank of your own"
     ["expense:read", true, true, true],
     ["expense:create", true, true, true],
     ["expense:approve", false, false, false], // approving always needs a specific expense
@@ -85,6 +87,16 @@ describe("can(): row-level rules", () => {
   });
 });
 
+describe("can(): bank connections are personal", () => {
+  it("only the owner can sync a bank, whatever their role", () => {
+    for (const a of [employee, manager, admin]) {
+      expect(can(a, "bank:sync", ownExpense(a))).toBe(true);
+      expect(can(a, "bank:sync", teammateExpense)).toBe(false);
+      expect(can(a, "bank:sync", otherTeamExpense)).toBe(false);
+    }
+  });
+});
+
 describe("can(): tenant isolation", () => {
   it.each([employee, manager, admin])("$role cannot touch another org's data", (a) => {
     for (const action of ACTIONS) {
@@ -95,8 +107,9 @@ describe("can(): tenant isolation", () => {
 
 describe("navLinksFor()", () => {
   it("shows Admin only to finance admins", () => {
-    expect(navLinksFor("EMPLOYEE").map((l) => l.label)).toEqual(["Dashboard"]);
-    expect(navLinksFor("MANAGER").map((l) => l.label)).toEqual(["Dashboard"]);
-    expect(navLinksFor("FINANCE_ADMIN").map((l) => l.label)).toEqual(["Dashboard", "Admin"]);
+    const common = ["Dashboard", "Transactions", "Bank accounts"];
+    expect(navLinksFor("EMPLOYEE").map((l) => l.label)).toEqual(common);
+    expect(navLinksFor("MANAGER").map((l) => l.label)).toEqual(common);
+    expect(navLinksFor("FINANCE_ADMIN").map((l) => l.label)).toEqual([...common, "Admin"]);
   });
 });

@@ -4,7 +4,7 @@ const createJestConfig = nextJest({ dir: "./" });
 
 // Unit + component tests (fast, no database). Component tests opt into jsdom
 // with a `@jest-environment jsdom` docblock.
-export default createJestConfig({
+const config = createJestConfig({
   testEnvironment: "node",
   setupFilesAfterEnv: ["<rootDir>/tests/helpers/jest.setup.ts"],
   moduleNameMapper: {
@@ -13,3 +13,11 @@ export default createJestConfig({
   },
   testMatch: ["<rootDir>/tests/unit/**/*.test.ts", "<rootDir>/tests/component/**/*.test.tsx"],
 });
+
+// jose ships ESM only, so let Jest's SWC transform it.
+const unitConfig = async () => ({
+  ...(await config()),
+  transformIgnorePatterns: ["/node_modules/(?!(\\.pnpm/)?(jose)[@+/])"],
+});
+
+export default unitConfig;

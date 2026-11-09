@@ -1,7 +1,8 @@
 import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/auth"];
+// Webhooks and cron authenticate themselves (signature / bearer secret), not with a session.
+const PUBLIC_PATHS = ["/login", "/api/auth", "/api/webhooks", "/api/cron"];
 
 /**
  * Optimistic check only: redirects when there's no session cookie at all.

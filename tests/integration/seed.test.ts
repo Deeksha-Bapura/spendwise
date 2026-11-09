@@ -1,4 +1,4 @@
-import { seed } from "../../prisma/seed-data";
+import { DEMO_TRANSACTIONS_PER_USER, seed } from "../../prisma/seed-data";
 import { resetDb, testDb } from "../helpers/db";
 
 const prisma = testDb();
@@ -7,20 +7,32 @@ beforeAll(() => resetDb(prisma));
 afterAll(() => prisma.$disconnect());
 
 async function counts() {
-  const [orgs, teams, users, accounts, policies] = await Promise.all([
+  const [orgs, teams, users, accounts, policies, plaidItems, bankAccounts, transactions] = await Promise.all([
     prisma.organization.count(),
     prisma.team.count(),
     prisma.user.count(),
     prisma.account.count(),
     prisma.policy.count(),
+    prisma.plaidItem.count(),
+    prisma.bankAccount.count(),
+    prisma.transaction.count(),
   ]);
-  return { orgs, teams, users, accounts, policies };
+  return { orgs, teams, users, accounts, policies, plaidItems, bankAccounts, transactions };
 }
 
 describe("seed", () => {
   it("creates the demo org", async () => {
     await seed(prisma);
-    expect(await counts()).toEqual({ orgs: 1, teams: 3, users: 10, accounts: 10, policies: 2 });
+    expect(await counts()).toEqual({
+      orgs: 1,
+      teams: 3,
+      users: 10,
+      accounts: 10,
+      policies: 2,
+      plaidItems: 4,
+      bankAccounts: 4,
+      transactions: 4 * DEMO_TRANSACTIONS_PER_USER,
+    });
   });
 
   it("is idempotent: a second run changes nothing", async () => {

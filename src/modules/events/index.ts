@@ -1,2 +1,3 @@
-// "events" (webhook inbox + transactional outbox) module: schema exists (prisma/schema.prisma); logic arrives in a later step.
-export {};
+import "server-only";
+// "events" module: idempotency keys now; webhook inbox + transactional outbox helpers grow here.
+export { withIdempotency, type IdempotentResult } from "./idempotency";

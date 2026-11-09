@@ -33,6 +33,9 @@ jobs:
       BETTER_AUTH_URL: http://localhost:3000
       DEMO_MODE: "true"
       DEFAULT_ORG_SLUG: acme
+      # CI-only values. No Plaid keys: tests use a fake Plaid and seeded demo data.
+      TOKEN_ENCRYPTION_KEY: Y2ktb25seS1rZXktMzItYnl0ZXMtbm90LXNlY3JldCE=
+      CRON_SECRET: ci-only-cron-secret-0123456789
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:

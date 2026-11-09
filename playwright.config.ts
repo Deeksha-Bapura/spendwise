@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = Number(process.env.PORT ?? 3000);
+// Its own port, so a `pnpm dev` server on 3000 is never mistaken for the test server.
+const PORT = Number(process.env.E2E_PORT ?? 3100);
 const baseURL = `http://localhost:${PORT}`;
 
 export default defineConfig({
@@ -29,7 +30,7 @@ export default defineConfig({
   webServer: {
     command: `pnpm start -p ${PORT}`,
     // Parallel tests sign in many times per second from one IP.
-    env: { AUTH_RATE_LIMIT: "false" },
+    env: { AUTH_RATE_LIMIT: "false", BETTER_AUTH_URL: baseURL },
     url: `${baseURL}/login`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
