@@ -1,0 +1,365 @@
+// Spendwise: Phase 1 schema.
+// Rules: money is integer cents (BigInt) + ISO 4217 currency; every tenant-owned
+// row carries orgId; AuditLog is append-only (enforced by a DB trigger, see migrations).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────── Enums ─────────────
+
+enum Role {
+  EMPLOYEE
+  MANAGER
+  FINANCE_ADMIN
+}
+
+enum CategorySource {
+  RULES
+  LLM
+  PLAID
+  MANUAL
+}
+
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  REIMBURSED
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+}
+
+enum PlaidItemStatus {
+  ACTIVE
+  LOGIN_REQUIRED
+  REVOKED
+}
+
+enum WebhookProvider {
+  PLAID
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+// ───────────── Org ─────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teams        Team[]
+  users        User[]
+  plaidItems   PlaidItem[]
+  bankAccounts BankAccount[]
+  transactions Transaction[]
+  expenses     Expense[]
+  policies     Policy[]
+  auditLogs    AuditLog[]
+  outboxEvents OutboxEvent[]
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  managerId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id])
+  manager User?        @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members User[]       @relation("TeamMembers")
+
+  @@unique([orgId, name])
+}
+
+// ───────────── Auth (Better Auth core tables + app fields) ─────────────
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // App fields (exposed to Better Auth via user.additionalFields, input: false)
+  orgId  String
+  teamId String?
+  role   Role    @default(EMPLOYEE)
+
+  org          Organization @relation(fields: [orgId], references: [id])
+  team         Team?        @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  managedTeams Team[]       @relation("TeamManager")
+
+  sessions          Session[]
+  accounts          Account[]
+  plaidItems        PlaidItem[]
+  expenses          Expense[]        @relation("ExpenseSubmitter")
+  approvals         Approval[]
+  policiesCreated   Policy[]
+  auditLogs         AuditLog[]
+  idempotencyKeys   IdempotencyKey[]
+
+  @@index([orgId, role])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+// ───────────── Banking (Plaid) ─────────────
+
+model PlaidItem {
+  id                   String          @id @default(cuid())
+  orgId                String
+  userId               String
+  plaidItemId          String          @unique
+  accessTokenEncrypted String // AES-256-GCM, key from env. Never log.
+  institutionName      String?
+  syncCursor           String?
+  status               PlaidItemStatus @default(ACTIVE)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  org      Organization  @relation(fields: [orgId], references: [id])
+  user     User          @relation(fields: [userId], references: [id])
+  accounts BankAccount[]
+
+  @@index([orgId])
+}
+
+model BankAccount {
+  id             String   @id @default(cuid())
+  orgId          String
+  plaidItemId    String
+  plaidAccountId String   @unique
+  name           String
+  mask           String?
+  type           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  org          Organization  @relation(fields: [orgId], references: [id])
+  plaidItem    PlaidItem     @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([orgId])
+}
+
+model Transaction {
+  id                 String          @id @default(cuid())
+  orgId              String
+  accountId          String
+  plaidTransactionId String          @unique // makes re-syncs idempotent
+  amountCents        BigInt
+  currency           String          @default("USD")
+  merchantName       String?
+  rawDescription     String
+  postedAt           DateTime
+  pending            Boolean         @default(false)
+  category           String?
+  categorySource     CategorySource?
+  categoryConfidence Float?
+  removedAt          DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id])
+  account BankAccount  @relation(fields: [accountId], references: [id])
+  expense Expense?
+
+  @@index([orgId, postedAt])
+  @@index([orgId, merchantName])
+  @@index([accountId])
+}
+
+// ───────────── Expenses & approvals ─────────────
+
+model Expense {
+  id            String        @id @default(cuid())
+  orgId         String
+  submitterId   String
+  transactionId String?       @unique
+  amountCents   BigInt
+  currency      String        @default("USD")
+  category      String
+  description   String
+  receiptUrl    String?
+  status        ExpenseStatus @default(DRAFT)
+  version       Int           @default(0) // optimistic locking
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  org         Organization @relation(fields: [orgId], references: [id])
+  submitter   User         @relation("ExpenseSubmitter", fields: [submitterId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  approvals   Approval[]
+
+  @@index([orgId, status])
+  @@index([submitterId])
+}
+
+model Approval {
+  id         String           @id @default(cuid())
+  expenseId  String
+  approverId String
+  decision   ApprovalDecision
+  comment    String?
+  createdAt  DateTime         @default(now())
+
+  expense  Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  approver User    @relation(fields: [approverId], references: [id])
+
+  @@index([expenseId])
+}
+
+model Policy {
+  id          String   @id @default(cuid())
+  orgId       String
+  text        String // the plain-English policy
+  rule        Json? // structured rule, compiled in Phase 2
+  active      Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org       Organization @relation(fields: [orgId], references: [id])
+  createdBy User         @relation(fields: [createdById], references: [id])
+
+  @@index([orgId, active])
+}
+
+// ───────────── Audit, events, idempotency ─────────────
+
+/// Append-only. A DB trigger rejects UPDATE and DELETE.
+model AuditLog {
+  id         String   @id @default(cuid())
+  orgId      String
+  actorId    String? // null = system
+  action     String // e.g. "expense.approved"
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  requestId  String?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  org   Organization @relation(fields: [orgId], references: [id])
+  actor User?        @relation(fields: [actorId], references: [id], onDelete: Restrict) // users with history are deactivated, never deleted
+
+  @@index([orgId, entityType, entityId])
+  @@index([orgId, createdAt])
+}
+
+/// Inbox: every incoming webhook is stored before processing.
+model WebhookEvent {
+  id          String          @id @default(cuid())
+  provider    WebhookProvider
+  eventId     String
+  type        String
+  payload     Json
+  status      WebhookStatus   @default(RECEIVED)
+  attempts    Int             @default(0)
+  receivedAt  DateTime        @default(now())
+  processedAt DateTime?
+
+  @@unique([provider, eventId])
+  @@index([status, receivedAt])
+}
+
+/// Transactional outbox: written in the same DB transaction as the change,
+/// published to Kafka by a relay (Phase 3).
+model OutboxEvent {
+  id            String    @id @default(cuid())
+  orgId         String
+  aggregateType String
+  aggregateId   String
+  type          String
+  payload       Json
+  createdAt     DateTime  @default(now())
+  publishedAt   DateTime?
+  attempts      Int       @default(0)
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([publishedAt, createdAt])
+}
+
+model IdempotencyKey {
+  id             String   @id @default(cuid())
+  key            String
+  userId         String
+  route          String
+  requestHash    String
+  responseStatus Int
+  responseBody   Json
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([expiresAt])
+}
