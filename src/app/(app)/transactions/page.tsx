@@ -27,7 +27,7 @@ async function Transactions() {
         <h1 className="text-2xl font-semibold">Transactions</h1>
         <p className="mt-1 text-sm text-stone-600" data-testid="transactions-scope">{SCOPE[user.role]}</p>
       </div>
-      <TransactionsTable showOwner={user.role !== "EMPLOYEE"} />
+      <TransactionsTable showOwner={user.role !== "EMPLOYEE"} currentUserId={user.id} />
     </section>
   );
 }

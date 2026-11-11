@@ -1,7 +1,9 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { formatCents } from "@/lib/money";
+import { ExpenseItButton } from "./ExpenseItButton";
 
 type Row = {
   id: string;
@@ -14,6 +16,7 @@ type Row = {
   plaidCategory: string | null;
   account: { name: string; mask: string | null };
   owner: { id: string; name: string };
+  expenseId: string | null;
 };
 type Page = { rows: Row[]; nextCursor: string | null };
 
@@ -28,7 +31,7 @@ async function fetchPage(cursor: string | null): Promise<Page> {
 const titleCase = (s: string) => s.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 /** Server data via TanStack Query: cached, deduped, and paged with a keyset cursor. */
-export function TransactionsTable({ showOwner }: { showOwner: boolean }) {
+export function TransactionsTable({ showOwner, currentUserId }: { showOwner: boolean; currentUserId: string }) {
   const query = useInfiniteQuery({
     queryKey: ["transactions"],
     queryFn: ({ pageParam }) => fetchPage(pageParam),
@@ -60,6 +63,7 @@ export function TransactionsTable({ showOwner }: { showOwner: boolean }) {
               <th className="px-4 py-2">Account</th>
               {showOwner && <th className="px-4 py-2">Owner</th>}
               <th className="px-4 py-2 text-right">Amount</th>
+              <th className="px-4 py-2"><span className="sr-only">Expense</span></th>
             </tr>
           </thead>
           <tbody>
@@ -83,6 +87,15 @@ export function TransactionsTable({ showOwner }: { showOwner: boolean }) {
                   {showOwner && <td className="px-4 py-2" data-testid="transaction-owner">{t.owner.name}</td>}
                   <td className={`whitespace-nowrap px-4 py-2 text-right font-mono ${inflow ? "text-brand-700" : ""}`}>
                     {inflow ? `+${formatCents(-cents, t.currency)}` : formatCents(cents, t.currency)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2 text-right">
+                    {t.expenseId ? (
+                      <Link href={`/expenses/${t.expenseId}`} className="text-xs font-medium text-brand-700 hover:underline">Expensed</Link>
+                    ) : t.owner.id === currentUserId && !inflow && t.pending ? (
+                      <span className="text-xs text-stone-400" title="You can expense it once it posts">Not yet posted</span>
+                    ) : t.owner.id === currentUserId && !inflow ? (
+                      <ExpenseItButton transactionId={t.id} />
+                    ) : null}
                   </td>
                 </tr>
               );

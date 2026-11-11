@@ -1,4 +1,4 @@
-import { DEMO_TRANSACTIONS_PER_USER, seed } from "../../prisma/seed-data";
+import { DEMO_EXPENSE_COUNT, DEMO_TRANSACTIONS_PER_USER, seed } from "../../prisma/seed-data";
 import { resetDb, testDb } from "../helpers/db";
 
 const prisma = testDb();
@@ -7,7 +7,7 @@ beforeAll(() => resetDb(prisma));
 afterAll(() => prisma.$disconnect());
 
 async function counts() {
-  const [orgs, teams, users, accounts, policies, plaidItems, bankAccounts, transactions] = await Promise.all([
+  const [orgs, teams, users, accounts, policies, plaidItems, bankAccounts, transactions, expenses, approvals] = await Promise.all([
     prisma.organization.count(),
     prisma.team.count(),
     prisma.user.count(),
@@ -16,8 +16,10 @@ async function counts() {
     prisma.plaidItem.count(),
     prisma.bankAccount.count(),
     prisma.transaction.count(),
+    prisma.expense.count(),
+    prisma.approval.count(),
   ]);
-  return { orgs, teams, users, accounts, policies, plaidItems, bankAccounts, transactions };
+  return { orgs, teams, users, accounts, policies, plaidItems, bankAccounts, transactions, expenses, approvals };
 }
 
 describe("seed", () => {
@@ -32,6 +34,8 @@ describe("seed", () => {
       plaidItems: 4,
       bankAccounts: 4,
       transactions: 4 * DEMO_TRANSACTIONS_PER_USER,
+      expenses: DEMO_EXPENSE_COUNT,
+      approvals: 2,
     });
   });
 

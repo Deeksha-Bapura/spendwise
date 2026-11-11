@@ -10,7 +10,7 @@ async function main() {
   try {
     const result = await seed(prisma);
     console.log(
-      `Seeded org ${result.orgId}: ${Object.keys(result.teamIds).length} teams, ${Object.keys(result.userIds).length} users, ${result.demoTransactions} demo transactions`,
+      `Seeded org ${result.orgId}: ${Object.keys(result.teamIds).length} teams, ${Object.keys(result.userIds).length} users, ${result.demoTransactions} demo transactions, ${result.demoExpenses} demo expenses`,
     );
   } finally {
     await prisma.$disconnect();

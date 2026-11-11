@@ -119,9 +119,98 @@ export async function seed(prisma: PrismaClient) {
   }
 
   const demoBanking = await seedDemoBanking(prisma, org.id, userIds);
+  const demoExpenses = await seedDemoExpenses(prisma, org.id, userIds);
 
-  return { orgId: org.id, teamIds, userIds, ...demoBanking };
+  return { orgId: org.id, teamIds, userIds, ...demoBanking, demoExpenses };
 }
+
+/* ───────────── Demo expenses ─────────────
+ * One expense in each interesting state, so every role has something to do:
+ * Marcus has two to approve, Fiona has Marcus's (managers can't approve their
+ * own), Sara has Sam's, and Emma has an approved, a rejected and a draft one.
+ */
+type DemoExpense = {
+  id: string;
+  submitter: string;
+  txn?: string; // demo transaction id to expense
+  manual?: { cents: bigint; description: string; category: string };
+  status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
+  decidedBy?: string;
+  comment?: string;
+  category?: string;
+};
+
+const DEMO_EXPENSES: DemoExpense[] = [
+  { id: "demo_exp_emma_approved", submitter: DEMO_ACCOUNTS.employee, txn: "demo_txn_employee_5", status: "APPROVED", decidedBy: DEMO_ACCOUNTS.manager, comment: "Thanks!" },
+  { id: "demo_exp_emma_rejected", submitter: DEMO_ACCOUNTS.employee, txn: "demo_txn_employee_8", status: "REJECTED", decidedBy: DEMO_ACCOUNTS.manager, comment: "Please add who attended and the business purpose." },
+  { id: "demo_exp_emma_submitted", submitter: DEMO_ACCOUNTS.employee, txn: "demo_txn_employee_3", status: "SUBMITTED" },
+  { id: "demo_exp_emma_draft", submitter: DEMO_ACCOUNTS.employee, manual: { cents: 3620n, description: "Snacks for team offsite", category: "Meals" }, status: "DRAFT" },
+  { id: "demo_exp_eli_submitted", submitter: "eli@acme.test", txn: "demo_txn_eli_4", status: "SUBMITTED" },
+  { id: "demo_exp_marcus_submitted", submitter: DEMO_ACCOUNTS.manager, txn: "demo_txn_manager_6", status: "SUBMITTED" },
+  { id: "demo_exp_sam_submitted", submitter: "sam@acme.test", txn: "demo_txn_sam_2", status: "SUBMITTED" },
+];
+
+const CATEGORY_FROM_PLAID: Record<string, string> = {
+  FOOD_AND_DRINK: "Meals",
+  TRAVEL: "Travel",
+  TRANSPORTATION: "Transportation",
+  GENERAL_SERVICES: "Software",
+  GENERAL_MERCHANDISE: "Office supplies",
+};
+
+async function seedDemoExpenses(prisma: PrismaClient, orgId: string, userIds: Record<string, string>) {
+  for (const d of DEMO_EXPENSES) {
+    if (await prisma.expense.findUnique({ where: { id: d.id }, select: { id: true } })) continue;
+    const submitterId = userIds[d.submitter]!;
+    const txn = d.txn ? await prisma.transaction.findUniqueOrThrow({ where: { plaidTransactionId: d.txn } }) : null;
+    const now = new Date();
+    const submittedAt = d.status === "DRAFT" ? null : new Date(now.getTime() - 2 * 86_400_000);
+    // version counts changes: created(0) → submitted(1) → decided(2)
+    const version = d.status === "DRAFT" ? 0 : d.status === "SUBMITTED" ? 1 : 2;
+
+    await prisma.$transaction(async (tx) => {
+      const expense = await tx.expense.create({
+        data: {
+          id: d.id,
+          orgId,
+          submitterId,
+          transactionId: txn?.id,
+          amountCents: txn?.amountCents ?? d.manual!.cents,
+          currency: "USD",
+          spentAt: txn?.postedAt ?? new Date(now.getTime() - 5 * 86_400_000),
+          category: d.manual?.category ?? CATEGORY_FROM_PLAID[txn?.plaidCategory ?? ""] ?? "Other",
+          description: d.manual?.description ?? txn!.merchantName ?? txn!.rawDescription,
+          status: d.status,
+          submittedAt,
+          version,
+        },
+      });
+      const audit = (action: string, actorId: string, at: Date) =>
+        tx.auditLog.create({
+          data: { orgId, actorId, action, entityType: "Expense", entityId: expense.id, createdAt: at },
+        });
+      await audit("expense.created", submitterId, new Date(now.getTime() - 3 * 86_400_000));
+      if (submittedAt) await audit("expense.submitted", submitterId, submittedAt);
+      if (d.decidedBy) {
+        const approverId = userIds[d.decidedBy]!;
+        const decidedAt = new Date(now.getTime() - 1 * 86_400_000);
+        await tx.approval.create({
+          data: {
+            expenseId: expense.id,
+            approverId,
+            decision: d.status === "APPROVED" ? "APPROVED" : "REJECTED",
+            comment: d.comment ?? null,
+            createdAt: decidedAt,
+          },
+        });
+        await audit(d.status === "APPROVED" ? "expense.approved" : "expense.rejected", approverId, decidedAt);
+      }
+    });
+  }
+  return DEMO_EXPENSES.length;
+}
+
+export const DEMO_EXPENSE_COUNT = DEMO_EXPENSES.length;
 
 /* ───────────── Demo bank data ─────────────
  * Seeded "Demo Bank" connections with realistic transactions, so the app has

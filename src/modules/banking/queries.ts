@@ -39,6 +39,7 @@ export type TransactionRow = {
   plaidCategory: string | null;
   account: { name: string; mask: string | null };
   owner: { id: string; name: string };
+  expenseId: string | null;
 };
 
 type Cursor = { postedAt: string; id: string };
@@ -96,6 +97,7 @@ export async function listTransactions(
       currency: true,
       pending: true,
       plaidCategory: true,
+      expense: { select: { id: true } },
       account: {
         select: { name: true, mask: true, plaidItem: { select: { user: { select: { id: true, name: true } } } } },
       },
@@ -116,6 +118,7 @@ export async function listTransactions(
       plaidCategory: r.plaidCategory,
       account: { name: r.account.name, mask: r.account.mask },
       owner: r.account.plaidItem.user,
+      expenseId: r.expense?.id ?? null,
     })),
     nextCursor: rows.length > limit && last ? encodeCursor({ postedAt: last.postedAt.toISOString(), id: last.id }) : null,
   };

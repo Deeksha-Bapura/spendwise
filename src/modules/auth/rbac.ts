@@ -105,12 +105,15 @@ export type NavLink = { href: string; label: string };
 
 /** Navigation for each role. UI only; the server still checks `can()`. */
 export function navLinksFor(role: Role): NavLink[] {
-  // Step 3 adds "Approvals" for MANAGER and FINANCE_ADMIN.
   const links: NavLink[] = [
     { href: "/dashboard", label: "Dashboard" },
     { href: "/transactions", label: "Transactions" },
-    { href: "/accounts", label: "Bank accounts" },
+    { href: "/expenses", label: "Expenses" },
   ];
+  if (role === "MANAGER" || role === "FINANCE_ADMIN") {
+    links.push({ href: "/approvals", label: "Approvals" });
+  }
+  links.push({ href: "/accounts", label: "Bank accounts" });
   if (role === "FINANCE_ADMIN") {
     links.push({ href: "/admin", label: "Admin" });
   }

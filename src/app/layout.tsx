@@ -10,7 +10,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className="h-full">
+    // Extensions (QuillBot, Grammarly…) add attributes to <html> before React loads.
+    // suppressHydrationWarning ignores attribute differences on this one element only.
+    <html lang="en" className="h-full" suppressHydrationWarning>
       <body className="min-h-full font-sans">
         {/* Every page is per-user, so the app renders dynamically inside this boundary.
             (Redux's store creation also isn't prerender-safe under Cache Components.) */}

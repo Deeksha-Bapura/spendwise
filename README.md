@@ -2,7 +2,7 @@
 
 An AI spend management platform (Ramp-style): connect bank accounts, categorize spending with an LLM, enforce plain-English policies, approve expenses, and reimburse through an idempotent double-entry ledger.
 
-> **Status: Phase 1 · Step 2 (bank connections).** Done: foundation (schema, three roles, audit log, CI) and Plaid (connect a bank, idempotent transaction sync, verified webhooks). Next: expenses and approvals.
+> **Status: Phase 1 · Step 3 (expenses and approvals).** Done: foundation (schema, three roles, audit log, CI), Plaid (connect a bank, idempotent sync, verified webhooks), and the expense workflow (submit, approve or reject, resubmit, with optimistic locking and a transactional outbox). Next: the outbox relay and background jobs.
 
 ## Architecture
 
@@ -57,13 +57,33 @@ Why each piece is there:
 
 Transactions are listed with **keyset pagination** on `(postedAt, id)`, so every page costs the same and new rows don't shift pages. Visibility follows the role rules: employees see their own, managers their team's, finance admins the org's.
 
+### Expenses and approvals
+
+```
+ DRAFT ──submit──▶ SUBMITTED ──approve──▶ APPROVED ──(Phase 3 ledger)──▶ REIMBURSED
+   ▲                   │
+   └──edit── REJECTED ◀┘ reject (comment required)
+```
+
+The whole lifecycle is one table in `src/modules/expenses/workflow.ts`, and every (status, action) pair is unit-tested. Every change goes through one function that, **in a single database transaction**:
+
+1. checks visibility (an expense outside your scope is a 404, not a 403, so ids can't be probed);
+2. checks who may act: only the submitter edits or submits; only an approver decides, **never on their own expense**. A manager's expense goes to finance, and finance's to their team manager;
+3. checks the workflow allows the move;
+4. writes with **optimistic locking**, `UPDATE … WHERE id = ? AND version = ?`. If two approvers click at once, exactly one row matches; the other gets 409 and nothing of theirs is written;
+5. records the approval, an **audit** entry, and an **outbox** event (`expense.submitted`, `expense.approved`, …) for the Phase 3 ledger.
+
+Card expenses take their amount, currency and date from the bank transaction, and those can't be edited. Each transaction can be expensed once (a unique index settles races). Creating an expense needs an `Idempotency-Key`, so a double-submitted form makes one expense.
+
+The "New expense" form keeps its draft in **Redux** (client state that survives navigation); everything from the server goes through **TanStack Query** or server components.
+
 ### Roles
 
 | | Employee | Manager | Finance admin |
 |---|---|---|---|
 | Own transactions and expenses | ✓ | ✓ | ✓ |
+| Approve expenses | | their team's, not their own | anyone's, not their own |
 | Connect and sync own banks | ✓ | ✓ | ✓ |
-| Team's expenses | | read and approve (never their own) | |
 | Whole org | | | read, approve, reimburse (never their own) |
 | Policies, audit log, `/admin` | | | ✓ |
 
@@ -96,7 +116,7 @@ pnpm dev                        # http://localhost:3000
 
 With `DEMO_MODE=true`, the login page shows one-click buttons for each account. Self sign-up is disabled, because accounts are provisioned.
 
-The seed also creates a **"Demo Bank"** card with 30 transactions for Emma, Eli, Marcus and Sam, so the app has data without Plaid keys. Demo banks are never synced with Plaid.
+The seed also creates a **"Demo Bank"** card with 30 transactions for Emma, Eli, Marcus and Sam, so the app has data without Plaid keys (demo banks are never synced with Plaid), plus 7 **demo expenses** in every state: Marcus has two of his team's to approve, Fiona has Marcus's, and Emma has an approved, a rejected and a draft one.
 
 ### Connecting a real sandbox bank
 

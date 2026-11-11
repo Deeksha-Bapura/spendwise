@@ -1,16 +1,12 @@
 import { Suspense } from "react";
 import { roleLabel } from "@/components/RoleBadge";
 import { PageSkeleton } from "@/components/Skeleton";
+import Link from "next/link";
 import { requireUser } from "@/modules/auth/server";
+import { expenseCounts } from "@/modules/expenses/server";
 import { getUserProfile } from "@/modules/org";
 
 export const metadata = { title: "Dashboard · Spendwise" };
-
-const NEXT_UP: Record<string, string> = {
-  EMPLOYEE: "Connect a bank account and submit expenses (Steps 2–3).",
-  MANAGER: "Review and approve your team's expenses (Step 3).",
-  FINANCE_ADMIN: "Org-wide spend, policies and the audit log (Steps 3–5).",
-};
 
 export default function DashboardPage() {
   return (
@@ -23,7 +19,7 @@ export default function DashboardPage() {
 // Reads the session, so it renders inside the Suspense boundary above.
 async function Dashboard() {
   const user = await requireUser();
-  const profile = await getUserProfile(user.id);
+  const [profile, counts] = await Promise.all([getUserProfile(user.id), expenseCounts(user)]);
 
   return (
     <section className="space-y-6">
@@ -33,9 +29,12 @@ async function Dashboard() {
         <Card label="Team" value={profile?.team?.name ?? "—"} testId="profile-team" />
         <Card label="Organization" value={profile?.org.name ?? "—"} />
       </div>
-      <div className="rounded-lg border border-dashed border-stone-300 bg-white p-6 text-sm text-stone-600">
-        <p className="font-medium text-stone-800">Coming next</p>
-        <p className="mt-1">{NEXT_UP[user.role]}</p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <LinkCard href="/expenses" label="Drafts to finish" value={counts.drafts} testId="count-drafts" />
+        <LinkCard href="/expenses" label="Waiting on approval" value={counts.mineSubmitted} testId="count-submitted" />
+        {user.role !== "EMPLOYEE" && (
+          <LinkCard href="/approvals" label="Waiting on you" value={counts.awaitingMe} testId="count-awaiting-me" />
+        )}
       </div>
     </section>
   );
@@ -47,5 +46,14 @@ function Card({ label, value, testId }: { label: string; value: string; testId?:
       <p className="text-xs font-medium uppercase tracking-wide text-stone-500">{label}</p>
       <p className="mt-1 text-lg font-semibold" data-testid={testId}>{value}</p>
     </div>
+  );
+}
+
+function LinkCard({ href, label, value, testId }: { href: string; label: string; value: number; testId: string }) {
+  return (
+    <Link href={href} className="rounded-lg border border-stone-200 bg-white p-5 hover:border-brand-600">
+      <p className="text-xs font-medium uppercase tracking-wide text-stone-500">{label}</p>
+      <p className="mt-1 text-2xl font-semibold" data-testid={testId}>{value}</p>
+    </Link>
   );
 }

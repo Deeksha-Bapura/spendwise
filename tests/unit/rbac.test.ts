@@ -106,10 +106,10 @@ describe("can(): tenant isolation", () => {
 });
 
 describe("navLinksFor()", () => {
-  it("shows Admin only to finance admins", () => {
-    const common = ["Dashboard", "Transactions", "Bank accounts"];
-    expect(navLinksFor("EMPLOYEE").map((l) => l.label)).toEqual(common);
-    expect(navLinksFor("MANAGER").map((l) => l.label)).toEqual(common);
-    expect(navLinksFor("FINANCE_ADMIN").map((l) => l.label)).toEqual([...common, "Admin"]);
+  it("shows Approvals to approvers and Admin only to finance admins", () => {
+    const labels = (r: Parameters<typeof navLinksFor>[0]) => navLinksFor(r).map((l) => l.label);
+    expect(labels("EMPLOYEE")).toEqual(["Dashboard", "Transactions", "Expenses", "Bank accounts"]);
+    expect(labels("MANAGER")).toEqual(["Dashboard", "Transactions", "Expenses", "Approvals", "Bank accounts"]);
+    expect(labels("FINANCE_ADMIN")).toEqual(["Dashboard", "Transactions", "Expenses", "Approvals", "Bank accounts", "Admin"]);
   });
 });
